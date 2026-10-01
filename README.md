@@ -12,8 +12,18 @@ keys, no extra bills: it spends the subscriptions you already pay for.
 - **Manual relay.** `/relay on` switches it on from your next message, whatever
   your usage. `/relay off` and `/relay auto` do what they say.
 - **Claude picks the model and the effort** per task: `low` for bulk triage,
-  `high` for the hard calls.
+  `high` for the hard calls. Aliases like `antigravity:@fast` and
+  `opencode:@smart-claude` always point at today's newest model, so nothing
+  needs updating when vendors ship new ones.
+- **Delegates follow your skills.** If you work with ponytail, TDD or a style
+  guide, the other models get the same SKILL.md.
+- **Errors don't stall you.** A failing backend falls back to another CLI; if
+  that fails too, Claude does the task itself.
+- **Images and other files.** Delegates can generate images or whole file sets
+  and hand them back (`output_dir`).
 - **`/shelf`** shows every backend and model as books on a shelf.
+
+<!-- BENCH-SUMMARY -->
 
 <p align="center"><img src="assets/relay.gif" alt="Plan usage climbs past 50%, the status line flips to RELAY ON and Claude delegates drafts to Gemini and Codex" width="90%"></p>
 
@@ -40,6 +50,7 @@ the relay segment appended.
 | `codex` | [Codex CLI](https://developers.openai.com/codex) | `codex login` | `model_reasoning_effort` |
 | `cursor` | [Cursor Agent](https://cursor.com/cli) | `cursor-agent login` | in the model id |
 | `opencode` | [opencode](https://opencode.ai) | `opencode auth login` | `--variant` |
+| `grok` | [Grok CLI](https://x.ai/cli) | `grok login` | `--reasoning-effort` |
 
 Installed CLIs are detected from `PATH` automatically. API keys work too
 (`GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, …) and are billed per token.
@@ -74,7 +85,7 @@ Plugin commands are namespaced — type `/shelf` or `/relay` and pick the
                           ▼
            one-line note: "delegate self-contained work"
                           ▼
-     Claude ──► model-router MCP ──► agy · codex · cursor-agent · opencode
+     Claude ──► model-router MCP ──► agy · codex · cursor-agent · opencode · grok
 ```
 
 - **Cheap when idle.** Below the threshold the hook prints nothing, so it adds
@@ -88,7 +99,13 @@ Plugin commands are namespaced — type `/shelf` or `/relay` and pick the
   prompt. Credential files (`.env`, keys, `.ssh/`) are refused.
 - **Results go to disk, not through Claude.** With `output_file` the server
   writes the delegate's answer (code, tests, docs) straight to the file; Claude
-  only runs or reads it to check, instead of re-typing it.
+  only runs or reads it to check, instead of re-typing it. `output_dir` collects
+  every file a delegate creates — e.g. a generated image.
+- **Models by alias.** `@fast` / `@smart` (plus `-claude`, `-gpt`… on
+  multi-vendor backends) resolve at call time to the newest matching model, and
+  pick the effort variant that matches. `/shelf` shows what they point to.
+- **Long prompts work.** Prompts too long for a command line go over stdin or a
+  prompt file, per CLI.
 - **Measured, not guessed.** Every delegated call is logged (sizes only, never
   content) to `~/.claude/model-relay/ledger.jsonl`; `/relay stats` turns it into
   an estimate of Claude tokens saved.
@@ -104,10 +121,24 @@ Plugin commands are namespaced — type `/shelf` or `/relay` and pick the
 
 | Tool | |
 |---|---|
-| `ask_model` | One prompt to one model. `model`, `prompt`, optional `effort`, `files`, `output_file`, `skills`, `fallback`, `system` |
-| `ask_models` | The same prompt to several models in parallel, for second opinions |
-| `map_prompt` | One template over many inputs (`inputs` or `input_files`), for bulk work |
+| `ask_model` | One prompt to one model. `model` (id or `@fast`/`@smart` alias), `prompt`, optional `effort`, `files`, `output_file`, `output_dir`, `skills`, `fallback`, `system` |
+| `ask_models` | The same prompt to several models in parallel, for second opinions (`files`, `skills`) |
+| `map_prompt` | One template over many inputs (`inputs` or `input_files`), for bulk work (`skills`, `fallback`) |
 | `list_models` / `list_providers` | What is installed, and which effort levels each backend honours |
+
+## Benchmark
+
+`bench/` runs six real tasks — code, docs, bulk log analysis, an agent-style
+bugfix, a code review and image generation — through `claude -p` with relay
+off and on. Each run is scored by a hidden check, and the cost is Claude
+Code's own reported usage, not an estimate.
+
+```bash
+node bench/run.mjs --dry              # validate the harness, no Claude calls
+node bench/run.mjs --model sonnet     # spends real plan usage
+```
+
+<!-- BENCH-RESULTS -->
 
 ## Development
 
@@ -115,6 +146,7 @@ Plugin commands are namespaced — type `/shelf` or `/relay` and pick the
 cd server
 npm install
 npm run build     # bundles src/ into dist/server.mjs (commit it)
+npm test          # unit tests
 npm run check     # selftest: detected backends + model probe
 npm run shelf
 python ../assets/src/make_gifs.py <shelf-output.txt>   # regenerate the GIFs

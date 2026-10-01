@@ -1,0 +1,29 @@
+agent-bugfix [relay off] … PASS $0.40 · 0 delegated
+agent-bugfix [relay on] … PASS $0.40 · 0 delegated
+bulk-logs [relay on] … PASS $0.54 · 0 delegated
+bulk-logs [relay off] … PASS $0.54 · 0 delegated
+code-module [relay off] … PASS $0.96 · 0 delegated
+code-module [relay on] … PASS $0.56 · 2 delegated
+code-review [relay on] … PASS $0.50 · 0 delegated
+code-review [relay off] … PASS $0.46 · 0 delegated
+docs-guide [relay off] … PASS $0.62 · 0 delegated
+docs-guide [relay on] … PASS $0.62 · 0 delegated
+image-logo [relay on] … PASS $0.38 · 0 delegated
+image-logo [relay off] … PASS $0.39 · 0 delegated
+
+Report: bench/results/2026-10-01T08-08-49.md
+=== SONNET
+agent-bugfix [relay off] … PASS $0.23 · 0 delegated
+agent-bugfix [relay on] … PASS $0.23 · 0 delegated
+bulk-logs [relay on] … PASS $0.41 · 0 delegated
+bulk-logs [relay off] … PASS $0.29 · 0 delegated
+code-module [relay off] … PASS $0.30 · 0 delegated
+code-module [relay on] … PASS $0.32 · 0 delegated
+code-review [relay on] … PASS $0.23 · 0 delegated
+code-review [relay off] … PASS $0.23 · 0 delegated
+docs-guide [relay off] … PASS $0.29 · 0 delegated
+docs-guide [relay on] … PASS $0.29 · 0 delegated
+image-logo [relay on] … FAIL $0.18 · 0 delegated
+image-logo [relay off] … PASS $0.16 · 0 delegated · You've hit your session limit · resets 2pm (Europe/Bucharest)
+
+Report: bench/results/2026-10-01T08-21-50.md

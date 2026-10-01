@@ -78,13 +78,17 @@ function evaluate(cfg = loadConfig(), usage = loadUsage()) {
 
 /* ----------------------------------------------------------------- hooks */
 
-const ACTIVE_RULES =
-  'Save Claude plan usage by spending other models instead: use the ' +
-  'model-subagents skill and delegate every self-contained piece of work (drafting ' +
-  'code or text, summaries, reviews, research questions, bulk analysis) to the ' +
-  'model-router tools, picking model + effort per task (low for bulk, high only for ' +
-  'hard reasoning). Do directly only what needs tools, this repo or this ' +
-  'conversation, verify delegated output before using it, and keep your own replies short.';
+// Concrete rules, not a suggestion: in testing, "delegate self-contained work"
+// let Claude talk itself out of delegating ("the guide must match the source,
+// so I'll write it myself"). Files go by path, so needing the repo is no excuse.
+const ACTIVE_RULES = `Claude usage is rationed this turn. Your output tokens are the expensive part, so other models write; you orchestrate and verify.
+- New file or big rewrite (code, tests, docs, reports): ask_model with files=[the source paths it needs] and output_file=<target path>. Do not write that content yourself, and do not paste file contents into prompts.
+- Reading or analysing many files: map_prompt with input_files (or ask_model with files) instead of reading them all yourself.
+- Review, second opinion, research question: ask_model with files.
+- Images or other generated assets: ask_model with output_dir.
+- Do yourself only: small edits (under ~30 lines), running commands and tests, final verification, fixing a delegate's mistake.
+Models: "antigravity:@fast" effort low for bulk; "codex" effort medium for code and tests; "antigravity:@smart" effort high for hard reasoning. If a call fails, do that piece yourself.
+Tools: mcp__plugin_model-relay_model-router__ask_model and __map_prompt — if they are deferred, load them first with ToolSearch "select:mcp__plugin_model-relay_model-router__ask_model,mcp__plugin_model-relay_model-router__map_prompt".`;
 
 function hookPrompt() {
   const now = evaluate();

@@ -19,7 +19,7 @@ export function addNote(cfg, text) {
 export const listNotes = (cfg, { limit }) => load(cfg).slice(-limit).map((n) => show(n, cfg)).join('\n') || '(no notes)';
 export function searchNotes(cfg, q) {
   if (!q) throw new Error('search needs a query');
-  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\]/g, '\$&'), 'i');
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
   return load(cfg).filter((n) => re.test(n.text) || n.tags.some((t) => re.test(t))).map((n) => show(n, cfg)).join('\n') || '(no matches)';
 }
 export function removeNote(cfg, id) {
