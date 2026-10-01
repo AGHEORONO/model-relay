@@ -37,13 +37,16 @@ export const CLI_ADAPTERS = {
     promptVia: 'stdin',
     stdin: (prompt) => JSON.stringify({ event: 'user', message: { content: prompt } }) + '\n',
     outputVia: 'stdout',
-    argv: ({ model, effort }) => [
+    argv: ({ model, effort, writable }) => [
       '--input-format',
       'stream-json',
       '--output-format',
       'stream-json',
       '-p=',
       '--sandbox',
+      // Print mode denies every tool by default; allow them only when we want
+      // files back, and then only inside its empty sandboxed temp dir.
+      ...(writable ? ['--dangerously-skip-permissions'] : []),
       ...(model ? ['--model', model] : []),
       ...(effort ? ['--effort', effort] : []),
     ],
@@ -290,7 +293,9 @@ export async function cliComplete(provider, { model, prompt, system, effort, tim
   // CLI backends have no separate system-prompt channel, so fold it in.
   const deliver = collectTo
     ? '\n\nSave every file you produce (images, documents, code) in the current directory; ' +
-      'those files are delivered to the user. Reply with a short note of what you saved.'
+      'only files there are delivered to the user. If a tool saves a file somewhere else ' +
+      '(e.g. an image generator), copy it into the current directory. ' +
+      'Reply with a short note of what you saved.'
     : '';
   const fullPrompt = (system ? `${system}\n\n---\n\n${prompt}` : prompt) + deliver;
   const started = Date.now();
@@ -313,7 +318,8 @@ export async function cliComplete(provider, { model, prompt, system, effort, tim
     const args = provider.argv({ model: effectiveModel, prompt, outFile, promptFile, effort: effectiveEffort, writable: Boolean(collectTo) });
     const { code, stdout, stderr } = await spawnCapture(provider.binPath, args, {
       input: provider.promptVia === 'stdin' ? (provider.stdin ? provider.stdin(fullPrompt) : fullPrompt) : null,
-      timeoutMs: timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      // Producing files (images especially) takes agents much longer than answering.
+      timeoutMs: timeoutMs ?? (collectTo ? 2 * DEFAULT_TIMEOUT_MS : DEFAULT_TIMEOUT_MS),
       cwd: tmpDir,
     });
 
