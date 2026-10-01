@@ -23,7 +23,9 @@ keys, no extra bills: it spends the subscriptions you already pay for.
   and hand them back (`output_dir`).
 - **`/shelf`** shows every backend and model as books on a shelf.
 
-<!-- BENCH-SUMMARY -->
+> **Measured, not promised.** In real `claude -p` runs, a delegated ~200-line
+> module + tests cost **49% less** on Opus (17% on Sonnet). Short outputs don't
+> pay, so relay only hands off large pieces. [Full results](bench/RESULTS.md).
 
 <p align="center"><img src="assets/relay.gif" alt="Plan usage climbs past 50%, the status line flips to RELAY ON and Claude delegates drafts to Gemini and Codex" width="90%"></p>
 
@@ -138,7 +140,19 @@ node bench/run.mjs --dry              # validate the harness, no Claude calls
 node bench/run.mjs --model sonnet     # spends real plan usage
 ```
 
-<!-- BENCH-RESULTS -->
+| Task | Opus off → on | Sonnet off → on |
+|---|---|---|
+| Module + tests from a spec | $0.96 → $0.49 (**−49%**) | $0.30 → $0.25 (**−17%**) |
+| Code review | $0.46 → $0.49 (+7%) | $0.23 → $0.23 |
+| 700-word user guide | $0.54 → $0.65 (+20%) | $0.27 → $0.31 |
+| Root-cause 12 logs | $0.54 → $0.63 (+17%) | $0.29 → $0.29 |
+| Agent bugfix | $0.40 → $0.40 | $0.23 → $0.23 |
+| 256×256 PNG logo | $0.39 → $0.41 (+5%) | $0.19 → $0.18 |
+
+All 24 runs passed their checks. Large generated output is where relay pays;
+delegating short outputs costs *more*, because each round trip re-reads the
+whole context — so relay now only hands off pieces of ~100+ lines. Details and
+raw data: [bench/RESULTS.md](bench/RESULTS.md).
 
 ## Development
 

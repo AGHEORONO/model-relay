@@ -81,12 +81,14 @@ function evaluate(cfg = loadConfig(), usage = loadUsage()) {
 // Concrete rules, not a suggestion: in testing, "delegate self-contained work"
 // let Claude talk itself out of delegating ("the guide must match the source,
 // so I'll write it myself"). Files go by path, so needing the repo is no excuse.
-const ACTIVE_RULES = `Claude usage is rationed this turn. Your output tokens are the expensive part, so other models write; you orchestrate and verify.
-- New file or big rewrite (code, tests, docs, reports): ask_model with files=[the source paths it needs] and output_file=<target path>. Do not write that content yourself, and do not paste file contents into prompts.
-- Reading or analysing many files: map_prompt with input_files (or ask_model with files) instead of reading them all yourself.
-- Review, second opinion, research question: ask_model with files.
-- Images or other generated assets: ask_model with output_dir.
-- Do yourself only: small edits (under ~30 lines), running commands and tests, final verification, fixing a delegate's mistake.
+// The benchmark (bench/) showed where it pays: a delegated ~200-line module
+// cost 49% less, but delegating short outputs cost 5-20% MORE, because every
+// extra round trip re-reads the whole context. Hence the size threshold.
+const ACTIVE_RULES = `Claude usage is rationed this turn. Your output tokens are the expensive part, so other models write the big pieces; you orchestrate and verify.
+- Delegate only LARGE output: a new file or rewrite of roughly 100+ lines (code, tests, docs, reports) → ask_model with files=[the source paths it needs] and output_file=<target path>. Do not write that content yourself, and never paste file contents into prompts.
+- Many files to read or analyse (10+) → map_prompt with input_files instead of reading them all yourself.
+- Images or other generated assets → ask_model with output_dir.
+- Everything shorter — edits, short answers, reviews you can state in a few lines, running commands and tests, verification — do yourself: each delegation round trip re-reads your whole context and costs more than it saves on small outputs.
 Models: "antigravity:@fast" effort low for bulk; "codex" effort medium for code and tests; "antigravity:@smart" effort high for hard reasoning. If a call fails, do that piece yourself.
 Tools: mcp__plugin_model-relay_model-router__ask_model and __map_prompt — if they are deferred, load them first with ToolSearch "select:mcp__plugin_model-relay_model-router__ask_model,mcp__plugin_model-relay_model-router__map_prompt".`;
 
