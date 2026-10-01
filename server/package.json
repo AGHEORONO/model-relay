@@ -1,0 +1,21 @@
+{
+  "name": "model-relay-server",
+  "version": "0.2.0",
+  "description": "MCP server behind the model-relay plugin: lets Claude Code delegate work to other models through CLIs you are already logged into.",
+  "type": "module",
+  "main": "dist/server.mjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "node dist/server.mjs --selftest",
+    "shelf": "node src/shelf.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

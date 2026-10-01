@@ -1,0 +1,14 @@
+{
+  "name": "model-relay",
+  "owner": {
+    "name": "AGHEORONO"
+  },
+  "description": "model-relay: let Claude Code relay work to Gemini, GPT, Grok and others through CLIs you are already logged into.",
+  "plugins": [
+    {
+      "name": "model-relay",
+      "source": "./",
+      "description": "Relay work from Claude to other models when your plan usage gets high. Uses subscriptions you already have \u2014 no API keys."
+    }
+  ]
+}
