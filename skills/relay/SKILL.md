@@ -1,6 +1,6 @@
 ---
 name: relay
-description: Turn model-relay on, off or automatic, set the usage threshold, or show plan usage. Relay mode makes Claude delegate self-contained work to other models (Gemini, GPT, Grok...) to save Claude plan usage. Trigger: /relay, "relay on", "relay off", "switch to other models", "save my Claude usage".
+description: "Turn model-relay on, off or automatic, set the usage threshold, or show plan usage. Relay mode makes Claude delegate self-contained work to other models (Gemini, GPT, Grok...) to save Claude plan usage. Trigger: /relay, \"relay on\", \"relay off\", \"switch to other models\", \"save my Claude usage\"."
 disable-model-invocation: true
 ---
 

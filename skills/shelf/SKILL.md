@@ -1,6 +1,6 @@
 ---
 name: shelf
-description: Show every model-router backend and its models drawn as books on a shelf, with the effort levels each supports. Trigger: /shelf, "show the shelf", "what models do I have". Optional argument: a backend name (antigravity, codex, cursor, opencode, ...) or "all".
+description: "Show every model-router backend and its models drawn as books on a shelf, with the effort levels each supports. Trigger: /shelf, \"show the shelf\", \"what models do I have\". Optional argument: a backend name (antigravity, codex, cursor, opencode, ...) or \"all\"."
 ---
 
 # /shelf

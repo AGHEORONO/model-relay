@@ -1,6 +1,6 @@
 ---
 name: model-subagents
-description: Delegate work to non-Claude models (Gemini Flash, GPT, Llama, DeepSeek, Grok, local Ollama) as subagents via the model-router MCP server. Use when the user asks to "ask Gemini", "get a second opinion", "compare models", "have another model check this", "use a cheaper model for this", or when facing bulk repetitive work across many files or records that does not need full reasoning. Also use for adversarial review, consensus checks, and cross-model verification. Trigger: /model-subagents
+description: "Delegate work to non-Claude models (Gemini Flash, GPT, Llama, DeepSeek, Grok, local Ollama) as subagents via the model-router MCP server. Use when the user asks to \"ask Gemini\", \"get a second opinion\", \"compare models\", \"have another model check this\", \"use a cheaper model for this\", or when facing bulk repetitive work across many files or records that does not need full reasoning. Also use for adversarial review, consensus checks, and cross-model verification. Trigger: /model-subagents"
 ---
 
 # Model subagents
