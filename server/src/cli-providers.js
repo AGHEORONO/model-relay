@@ -13,11 +13,12 @@
  */
 
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, cp, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pickDefaultProvider } from './providers.js';
+import { isSecretPath } from './files.js';
 
 const IS_WIN = process.platform === 'win32';
 const DEFAULT_TIMEOUT_MS = Number(process.env.MODEL_ROUTER_CLI_TIMEOUT_MS || 300_000);
@@ -70,11 +71,12 @@ export const CLI_ADAPTERS = {
     bin: 'codex',
     promptVia: 'stdin',
     outputVia: 'file', // --output-last-message gives the answer with no banner
-    argv: ({ model, outFile, effort }) => [
+    argv: ({ model, outFile, effort, writable }) => [
       'exec',
       '--skip-git-repo-check',
       '-s',
-      'read-only',
+      // Writable only when collecting artifacts — and then only its empty temp dir.
+      writable ? 'workspace-write' : 'read-only',
       '-o',
       outFile,
       ...(model ? ['-m', model] : []),
@@ -281,12 +283,16 @@ function spawnCapture(binPath, args, { input, timeoutMs, cwd }) {
   });
 }
 
-export async function cliComplete(provider, { model, prompt, system, effort, timeoutMs }) {
+export async function cliComplete(provider, { model, prompt, system, effort, timeoutMs, collectTo = null, overwrite = false }) {
   const effectiveModel = model ?? provider.defaultModel ?? null;
   // Backends without an effort knob ignore it; say so rather than pretend.
   const effectiveEffort = provider.efforts?.includes(effort) ? effort : null;
   // CLI backends have no separate system-prompt channel, so fold it in.
-  const fullPrompt = system ? `${system}\n\n---\n\n${prompt}` : prompt;
+  const deliver = collectTo
+    ? '\n\nSave every file you produce (images, documents, code) in the current directory; ' +
+      'those files are delivered to the user. Reply with a short note of what you saved.'
+    : '';
+  const fullPrompt = (system ? `${system}\n\n---\n\n${prompt}` : prompt) + deliver;
   const started = Date.now();
 
   // Always run in a fresh empty directory. These are coding agents that will
@@ -304,7 +310,7 @@ export async function cliComplete(provider, { model, prompt, system, effort, tim
       await writeFile(promptFile, fullPrompt);
       if (provider.promptVia === 'argv') prompt = POINTER;
     }
-    const args = provider.argv({ model: effectiveModel, prompt, outFile, promptFile, effort: effectiveEffort });
+    const args = provider.argv({ model: effectiveModel, prompt, outFile, promptFile, effort: effectiveEffort, writable: Boolean(collectTo) });
     const { code, stdout, stderr } = await spawnCapture(provider.binPath, args, {
       input: provider.promptVia === 'stdin' ? (provider.stdin ? provider.stdin(fullPrompt) : fullPrompt) : null,
       timeoutMs: timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -330,8 +336,11 @@ export async function cliComplete(provider, { model, prompt, system, effort, tim
     }
     if (!text) throw new Error('CLI returned no output.');
 
+    const artifacts = collectTo ? await collect(tmpDir, collectTo, { overwrite }) : undefined;
+
     return {
       text,
+      artifacts,
       finishReason: 'stop',
       usage: null, // CLIs bill against the subscription, not per-token
       elapsedMs: Date.now() - started,
@@ -342,6 +351,27 @@ export async function cliComplete(provider, { model, prompt, system, effort, tim
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/** Files the delegate created in its temp dir, copied to `dest`. Returns their relative paths. */
+const OURS = new Set(['prompt.md', 'answer.txt']);
+async function collect(tmpDir, dest, { overwrite }) {
+  const entries = await readdir(tmpDir, { recursive: true, withFileTypes: true });
+  const out = [];
+  for (const e of entries) {
+    if (!e.isFile()) continue;
+    const abs = path.join(e.parentPath ?? e.path, e.name);
+    const rel = path.relative(tmpDir, abs);
+    // Skip our own files, dot-dirs (agent caches, .git) and anything credential-like.
+    if (OURS.has(rel) || rel.split(path.sep).some((s) => s.startsWith('.')) || isSecretPath(rel)) continue;
+    const target = path.join(dest, rel);
+    if (!overwrite && (await stat(target).catch(() => null))) {
+      throw new Error(`${target} already exists (pass overwrite: true to replace it)`);
+    }
+    await cp(abs, target, { force: true });
+    out.push(rel.split(path.sep).join('/'));
+  }
+  return out;
 }
 
 export async function cliListModels(provider) {

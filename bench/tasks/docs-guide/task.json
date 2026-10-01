@@ -1,0 +1,6 @@
+{
+  "category": "text",
+  "title": "Write a user guide for a small CLI",
+  "prompt": "Write docs/GUIDE.md: a complete user guide for this CLI, at least 700 words. Cover installation, every command with a realistic example, the configuration file and environment variables, and a troubleshooting section for the errors the code can raise. Base it strictly on the source code.",
+  "timeoutSec": 900
+}

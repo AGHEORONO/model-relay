@@ -19,6 +19,7 @@ import {
 import { loadProviders, parseModelRef } from './providers.js';
 import { complete, listModels } from './client.js';
 import { loadFiles, writeOutput } from './files.js';
+import path from 'node:path';
 import { loadSkills } from './skills.js';
 import { aliasLine, familyOf, parseAlias, pickModel } from './models.js';
 import { record } from './ledger.js';
@@ -93,7 +94,12 @@ const TOOLS = [
           description:
             'Absolute path to write the reply to, instead of returning it. Use whenever the answer becomes a file (code, tests, docs): you then only read/run it to verify, instead of re-typing it as output tokens. One surrounding ``` fence is stripped. Fails if the file exists unless overwrite is true.',
         },
-        overwrite: { type: 'boolean', description: 'Allow output_file to replace an existing file. Default false.' },
+        output_dir: {
+          type: 'string',
+          description:
+            'Absolute directory to receive any files the delegate creates — images, documents, generated code trees. Use for work you cannot do or should not re-type (e.g. "generate a logo"). CLI backends only.',
+        },
+        overwrite: { type: 'boolean', description: 'Allow output_file / output_dir to replace existing files. Default false.' },
         fallback: {
           type: 'boolean',
           description: 'If the backend fails, retry once on another installed CLI (its default model). Default true.',
@@ -321,8 +327,13 @@ async function pooled(items, limit, fn) {
  */
 async function callModel(ref, args, prompt, system) {
   const { provider, model } = await resolveRef(ref, args.effort);
+  if (args.output_dir && provider.kind !== 'cli') {
+    throw badRef(`${provider.id} is an API backend and cannot create files; use a CLI backend for output_dir`);
+  }
   const call = provider.kind === 'cli' ? cliComplete : complete;
   return call(provider, {
+    collectTo: args.output_dir ? path.resolve(args.output_dir) : null,
+    overwrite: args.overwrite,
     model,
     prompt,
     system,
@@ -513,7 +524,12 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
               `\n\n---\n${note}${usageLine(r)}`
           );
         }
-        return text(`${r.text}\n\n---\n${note}${usageLine(r)}`);
+        const files = r.artifacts?.length
+          ? `\n\nFiles saved to ${args.output_dir}:\n${r.artifacts.map((f) => `- ${f}`).join('\n')}`
+          : args.output_dir
+            ? `\n\nNo files were created in ${args.output_dir}.`
+            : '';
+        return text(`${r.text}${files}\n\n---\n${note}${usageLine(r)}`);
       }
 
       case 'ask_models': {

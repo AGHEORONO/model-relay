@@ -1,0 +1,6 @@
+{
+  "category": "agent work",
+  "title": "Make a failing test suite pass",
+  "prompt": "`node --test` fails in this project. Find and fix the bugs in src/ so the whole suite passes. Do not modify anything under test/.",
+  "timeoutSec": 900
+}

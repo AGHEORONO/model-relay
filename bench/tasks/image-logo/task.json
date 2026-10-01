@@ -1,0 +1,6 @@
+{
+  "category": "image",
+  "title": "Generate a PNG logo",
+  "prompt": "Create a 256x256 PNG logo for this project (a small bookshelf with four coloured books, flat style) and save it at assets/logo.png. The file must be a real PNG of exactly 256x256 pixels.",
+  "timeoutSec": 900
+}

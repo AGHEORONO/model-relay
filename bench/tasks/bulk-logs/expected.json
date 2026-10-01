@@ -1,0 +1,50 @@
+[
+ [
+  "01-billing-api.log",
+  "disk|space|enospc"
+ ],
+ [
+  "02-image-worker.log",
+  "memory|oom"
+ ],
+ [
+  "03-orders.log",
+  "connection refused|database|postgres|db"
+ ],
+ [
+  "04-gateway.log",
+  "certificate|expired|tls|x509"
+ ],
+ [
+  "05-mailer.log",
+  "dns|enotfound|resolv|hostname"
+ ],
+ [
+  "06-reports.log",
+  "permission|eacces"
+ ],
+ [
+  "07-search.log",
+  "eaddrinuse|port|address already in use"
+ ],
+ [
+  "08-sync.log",
+  "rate|429|too many"
+ ],
+ [
+  "09-profile.log",
+  "undefined|typeerror|null|avatarurl"
+ ],
+ [
+  "10-checkout.log",
+  "timeout|timed out|inventory"
+ ],
+ [
+  "11-notifier.log",
+  "environment|env|push_api_key|variable"
+ ],
+ [
+  "12-ledger.log",
+  "deadlock|lock"
+ ]
+]

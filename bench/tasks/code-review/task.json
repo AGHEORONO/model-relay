@@ -1,0 +1,6 @@
+{
+  "category": "review",
+  "title": "Review a module for bugs",
+  "prompt": "Review src/orders.js carefully. Write REVIEW.md listing every real bug or security issue you find, each with the line number, why it is a problem, and a concrete fix. Do not change the code.",
+  "timeoutSec": 900
+}

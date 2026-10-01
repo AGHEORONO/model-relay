@@ -1,0 +1,6 @@
+{
+  "category": "bulk analysis",
+  "title": "Root-cause 12 service logs",
+  "prompt": "Each file in logs/ is the log of a failed service run. For every file, find the root cause of the failure (not just the last error). Write report.md with one markdown table: file | root cause | severity (low/medium/high) | suggested fix. One row per log file.",
+  "timeoutSec": 900
+}

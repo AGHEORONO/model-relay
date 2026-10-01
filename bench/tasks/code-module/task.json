@@ -1,0 +1,6 @@
+{
+  "category": "code",
+  "title": "Implement a module from a spec, with tests",
+  "prompt": "Implement src/duration.js exactly as specified in SPEC.md, then write thorough tests for it in test/duration.test.js using node:test. Run the tests and make sure they pass.",
+  "timeoutSec": 900
+}

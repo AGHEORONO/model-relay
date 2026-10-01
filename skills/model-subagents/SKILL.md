@@ -46,6 +46,10 @@ ask a follow-up.
 *write* the file as output tokens — the expensive kind — and wipes out the
 saving that delegation was for.
 
+**Work Claude can't do, or that produces many files** (images, generated
+assets, scaffolds): pass `output_dir: "<abs dir>"` — whatever files the delegate
+creates are copied there.
+
 **Never re-type a delegated answer into a file.** When the result *is* a file
 (code, tests, docs), pass `output_file: "<abs path>"` to `ask_model`: the server
 writes it and returns only a summary. Then run or read it to verify. Copying an

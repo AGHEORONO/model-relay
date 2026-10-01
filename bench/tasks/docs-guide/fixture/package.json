@@ -1,0 +1,1 @@
+{ "name": "jot", "version": "2.1.0", "type": "module", "bin": { "jot": "src/cli.js" }, "engines": { "node": ">=18" } }
