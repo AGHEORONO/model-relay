@@ -21,10 +21,14 @@ Without that note, delegate only when it is clearly worth it (below).
 
 ## Two hard constraints, read first
 
-**1. A delegated model is stateless and blind.** It gets exactly one string:
-your prompt. It cannot see this conversation, read files, run tools, or ask a
-follow-up. Everything it needs must be pasted in. If assembling the context
-costs more than doing the task, do the task yourself.
+**1. A delegated model is stateless and blind.** It gets your prompt plus any
+files you attach — nothing else. It cannot see this conversation, run tools, or
+ask a follow-up.
+
+**Never paste file contents into a prompt.** Pass paths with `files: [...]`
+(or `input_files` on `map_prompt`); the server reads them. Pasting makes you
+*write* the file as output tokens — the expensive kind — and wipes out the
+saving that delegation was for.
 
 **2. Subscription (CLI) backends are slow.** Each call spawns a whole agent
 process — **roughly 11-20 seconds**, versus under a second for an API backend.
@@ -104,8 +108,8 @@ rather than asserting a model exists.
 
 ## Rules
 
-1. **Self-contained prompts.** Paste the code, the data, the constraints.
-   Never write "the function above" or "as discussed".
+1. **Self-contained prompts.** Attach code with `files`, state the data and
+   constraints in the prompt. Never write "the function above" or "as discussed".
 2. **Pin the output shape.** Use `system` to demand a format — "Reply with only
    a JSON array of objects with keys `file` and `severity`." Free-form replies
    from a fan-out are painful to fuse.

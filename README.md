@@ -56,6 +56,7 @@ Plugin commands are namespaced — type `/shelf` or `/relay` and pick the
 | `/relay threshold 60` | Change the auto threshold (default 50) |
 | `/relay window 5h` | Watch only the 5-hour limit (`7d` for weekly, `any` = both) |
 | `/relay setup` · `uninstall` | Install or remove the status line |
+| `/relay stats` · `/relay stats 7` | Delegated calls and estimated Claude tokens saved |
 | `/shelf` · `/shelf cursor` · `/shelf all` | See the models |
 
 <p align="center"><img src="assets/manual.gif" alt="Typing /relay on shows relay ON with current 5-hour and weekly usage bars" width="90%"></p>
@@ -82,6 +83,12 @@ Plugin commands are namespaced — type `/shelf` or `/relay` and pick the
   what comes back. What moves out is the self-contained work: drafts,
   summaries, reviews, research answers and bulk analysis. Relay cuts Claude
   usage; it does not bring it to zero.
+- **Files go by path, not by paste.** `files` / `input_files` make the server
+  read files itself, so Claude never spends output tokens copying code into a
+  prompt. Credential files (`.env`, keys, `.ssh/`) are refused.
+- **Measured, not guessed.** Every delegated call is logged (sizes only, never
+  content) to `~/.claude/model-relay/ledger.jsonl`; `/relay stats` turns it into
+  an estimate of Claude tokens saved.
 - **Safe by default.** Every delegated call runs in a fresh empty temp
   directory (`--sandbox` / read-only where the CLI supports it), so the other
   agent cannot see or touch your project. It gets only the prompt Claude writes.
@@ -90,9 +97,9 @@ Plugin commands are namespaced — type `/shelf` or `/relay` and pick the
 
 | Tool | |
 |---|---|
-| `ask_model` | One prompt to one model. `model`, `prompt`, optional `effort`, `system` |
+| `ask_model` | One prompt to one model. `model`, `prompt`, optional `effort`, `files`, `system` |
 | `ask_models` | The same prompt to several models in parallel, for second opinions |
-| `map_prompt` | One template over many inputs, for bulk work |
+| `map_prompt` | One template over many inputs (`inputs` or `input_files`), for bulk work |
 | `list_models` / `list_providers` | What is installed, and which effort levels each backend honours |
 
 ## Development

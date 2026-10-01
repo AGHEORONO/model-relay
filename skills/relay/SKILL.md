@@ -16,7 +16,9 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/relay.mjs" $ARGUMENTS
 directory two levels above this skill's base directory instead.
 
 Arguments: `status` (default) · `on` · `off` · `auto` · `threshold <1-100>` ·
-`window any|5h|7d` · `setup` · `uninstall`.
+`window any|5h|7d` · `stats [days]` · `setup` · `uninstall`.
+
+`stats` shows delegated calls and an estimate of the Claude tokens they saved.
 
 - `on` — relay starts with the user's next message, regardless of usage.
 - `auto` — relay switches itself on when the 5-hour or weekly plan usage

@@ -18,6 +18,8 @@ import {
 
 import { loadProviders, parseModelRef } from './providers.js';
 import { complete, listModels } from './client.js';
+import { loadFiles } from './files.js';
+import { record } from './ledger.js';
 import {
   CLI_ADAPTERS,
   chooseDefault,
@@ -68,7 +70,7 @@ const TOOLS = [
   {
     name: 'ask_model',
     description:
-      'Send a one-shot prompt to another model and return its reply. The prompt must be fully self-contained: the target model sees ONLY what you send here — no conversation history, no file access, no tools. Paste in any code or context it needs.',
+      'Send a one-shot prompt to another model and return its reply. The prompt must be fully self-contained: the target model sees ONLY what you send here — no conversation history, no tools. Give it files with `files` (paths) instead of pasting them; put any other context it needs in the prompt.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -78,6 +80,12 @@ const TOOLS = [
             'Model id, optionally backend-prefixed: "antigravity:gemini-3.8-flash-low", "cursor:gpt-5.2". A bare backend name ("codex") uses that backend\'s own default model. Get exact ids from list_models.',
         },
         prompt: { type: 'string', description: 'The full, self-contained user prompt.' },
+        files: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Absolute paths of local files to attach. The server reads them and appends them to the prompt, so you never paste file contents yourself (pasting costs your own output tokens). Max 256 KB per file, 1 MB total; credential files (.env, keys) are refused.',
+        },
         system: { type: 'string', description: 'Optional system prompt setting the role or output format.' },
         temperature: { type: 'number', description: 'Sampling temperature, typically 0-1.' },
         max_tokens: { type: 'integer', description: 'Cap on response length.' },
@@ -107,6 +115,12 @@ const TOOLS = [
           minItems: 1,
         },
         prompt: { type: 'string', description: 'The full, self-contained user prompt.' },
+        files: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Absolute paths of local files to attach. The server reads them and appends them to the prompt, so you never paste file contents yourself (pasting costs your own output tokens). Max 256 KB per file, 1 MB total; credential files (.env, keys) are refused.',
+        },
         system: { type: 'string' },
         temperature: { type: 'number' },
         max_tokens: { type: 'integer' },
@@ -125,7 +139,7 @@ const TOOLS = [
   {
     name: 'map_prompt',
     description:
-      'Run one prompt template over many inputs in parallel on a single (usually cheap, fast) model. The literal token {{input}} in the template is replaced by each item. Use for bulk classification, summarisation, extraction, or triage across many files or records.',
+      'Run one prompt template over many inputs in parallel on a single (usually cheap, fast) model. The literal token {{input}} in the template is replaced by each item. Use for bulk classification, summarisation, extraction, or triage across many files or records. For files, pass `input_files` (one path per item) instead of pasting contents into `inputs`.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -137,9 +151,22 @@ const TOOLS = [
         inputs: {
           type: 'array',
           items: { type: 'string' },
-          description: 'One string per item to process.',
+          description: 'One string per item to process. Give either this or input_files.',
           minItems: 1,
         },
+        input_files: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Absolute file paths, one item each: the server reads every file and substitutes its contents (with a path header) for {{input}}.',
+          minItems: 1,
+        },
+        files: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Absolute paths of local files to attach to EVERY item as shared context. The server reads them and appends them to the prompt, so you never paste file contents yourself (pasting costs your own output tokens). Max 256 KB per file, 1 MB total; credential files (.env, keys) are refused.',
+        },
+
         system: { type: 'string' },
         temperature: { type: 'number' },
         max_tokens: { type: 'integer' },
@@ -154,7 +181,7 @@ const TOOLS = [
           description: 'Max in-flight requests. Default 5. Lower this if you hit rate limits.',
         },
       },
-      required: ['model', 'template', 'inputs'],
+      required: ['model', 'template'],
       additionalProperties: false,
     },
   },
@@ -206,21 +233,35 @@ async function pooled(items, limit, fn) {
   return results;
 }
 
-async function askOne(ref, args) {
+/**
+ * One delegated call. `attached` is file text the server read itself (never
+ * written by Claude); `claudeChars` is what Claude did write for this call.
+ * Both go to the ledger so /relay stats can estimate savings.
+ */
+async function askOne(ref, args, { attached = '', claudeChars, tool = 'ask_model', fileChars = 0 } = {}) {
+  const started = Date.now();
+  const prompt = attached ? `${args.prompt}
+
+${attached}` : args.prompt;
+  const wrote = claudeChars ?? (args.prompt?.length ?? 0) + (args.system?.length ?? 0);
   try {
     const { provider, model } = resolve(ref);
     const call = provider.kind === 'cli' ? cliComplete : complete;
     const r = await call(provider, {
       model,
-      prompt: args.prompt,
+      prompt,
       system: args.system,
       temperature: args.temperature,
       maxTokens: args.max_tokens,
       effort: args.effort,
       timeoutMs: args.timeout_ms,
     });
+    record({ tool, model: r.resolvedModel.split(' · ')[0], effort: args.effort ?? null, ok: true,
+      claude_chars: wrote, file_chars: attached.length + fileChars, reply_chars: r.text.length, ms: r.elapsedMs });
     return { ref, ok: true, ...r };
   } catch (e) {
+    record({ tool, model: String(ref), effort: args.effort ?? null, ok: false,
+      claude_chars: wrote, file_chars: attached.length + fileChars, reply_chars: 0, ms: Date.now() - started });
     return { ref, ok: false, error: e.message };
   }
 }
@@ -321,13 +362,19 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       }
 
       case 'ask_model': {
-        const r = await askOne(args.model, args);
+        const { text: attached } = await loadFiles(args.files);
+        const r = await askOne(args.model, args, { attached });
         if (!r.ok) return errorText(`Call to "${args.model}" failed: ${r.error}`);
         return text(`${r.text}\n\n---\n${usageLine(r)}`);
       }
 
       case 'ask_models': {
-        const results = await Promise.all(args.models.map((m) => askOne(m, args)));
+        const { text: attached } = await loadFiles(args.files);
+        // Claude wrote the prompt once, however many models read it.
+        const once = (args.prompt?.length ?? 0) + (args.system?.length ?? 0);
+        const results = await Promise.all(
+          args.models.map((m, i) => askOne(m, args, { attached, claudeChars: i ? 0 : once, tool: 'ask_models' }))
+        );
         const blocks = results.map((r) =>
           r.ok
             ? `## ${r.ref}\n${r.text}\n\n${usageLine(r)}`
@@ -344,12 +391,28 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         if (!args.template.includes('{{input}}')) {
           return errorText('The template must contain the literal token {{input}}.');
         }
+        if (!args.inputs?.length && !args.input_files?.length) {
+          return errorText('Give either inputs or input_files.');
+        }
+        const { text: shared } = await loadFiles(args.files);
+        // input_files: the server reads each file, so it costs Claude nothing to write.
+        const items = args.input_files?.length
+          ? await Promise.all(args.input_files.map(async (f) => ({ text: (await loadFiles([f])).text, fromFile: true })))
+          : args.inputs.map((t) => ({ text: t, fromFile: false }));
+
         const limit = Math.max(1, Math.min(args.concurrency ?? 5, 20));
-        const results = await pooled(args.inputs, limit, (input) =>
-          askOne(args.model, {
-            ...args,
-            prompt: args.template.split('{{input}}').join(input),
-          })
+        const templateChars = args.template.length + (args.system?.length ?? 0);
+        const results = await pooled(items, limit, (item, i) =>
+          askOne(
+            args.model,
+            { ...args, prompt: args.template.split('{{input}}').join(item.text) },
+            {
+              attached: shared,
+              tool: 'map_prompt',
+              claudeChars: (i === 0 ? templateChars : 0) + (item.fromFile ? 0 : item.text.length),
+              fileChars: item.fromFile ? item.text.length : 0,
+            }
+          )
         );
 
         const blocks = results.map((r, i) =>

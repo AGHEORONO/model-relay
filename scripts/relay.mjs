@@ -8,6 +8,7 @@
  *   relay window any|5h|7d       which limit the threshold watches (default: any)
  *   relay setup                  install the status line (wraps an existing one)
  *   relay uninstall              restore the previous status line
+ *   relay stats [days]           what delegation saved (from the call ledger)
  *
  *   relay hook-prompt            UserPromptSubmit hook
  *   relay hook-session           SessionStart hook
@@ -170,6 +171,65 @@ function status() {
   if (statusOk && !usage.seen) console.log('            no usage seen yet — it arrives after the next reply.');
 }
 
+/**
+ * Estimated savings, in Claude output-token equivalents.
+ *
+ * Plan usage is driven mostly by output tokens; input costs ~1/5 as much
+ * (the API price ratio), so input is converted at 1/5. Per call:
+ *   with relay  = Claude writes the prompt (out) + reads the reply (in)
+ *   without     = Claude writes the reply itself (out) + reads the files (in)
+ * Assumes Claude's own answer would be about as long as the delegate's, and
+ * ignores any extra reading Claude does to verify — so treat it as an estimate.
+ */
+function stats(days) {
+  const OUT_PER_IN = 5;
+  const tok = (chars) => chars / 4;
+  const since = days ? Date.now() - days * 24 * HOUR : 0;
+  let lines = [];
+  try {
+    lines = readFileSync(path.join(DIR, 'ledger.jsonl'), 'utf8').split('\n').filter(Boolean);
+  } catch {
+    /* no ledger yet */
+  }
+  const calls = lines.map((l) => {
+    try { return JSON.parse(l); } catch { return null; }
+  }).filter((c) => c && c.at >= since);
+
+  const window = days ? `last ${days} day${days === 1 ? '' : 's'}` : 'all time';
+  if (!calls.length) {
+    console.log(`No delegated calls recorded (${window}).`);
+    return;
+  }
+
+  const byModel = new Map();
+  const total = { n: 0, ok: 0, claude: 0, files: 0, reply: 0, ms: 0, saved: 0, baseline: 0 };
+  for (const c of calls) {
+    const withRelay = tok(c.claude_chars) + tok(c.reply_chars) / OUT_PER_IN;
+    const without = c.ok ? tok(c.reply_chars) + tok(c.file_chars) / OUT_PER_IN : 0;
+    const saved = c.ok ? without - withRelay : -withRelay;
+    for (const t of [total, byModel.get(c.model) ?? byModel.set(c.model, { n: 0, ok: 0, claude: 0, files: 0, reply: 0, ms: 0, saved: 0, baseline: 0 }).get(c.model)]) {
+      t.n++; t.ok += c.ok ? 1 : 0; t.claude += c.claude_chars; t.files += c.file_chars;
+      t.reply += c.reply_chars; t.ms += c.ms; t.saved += saved; t.baseline += without;
+    }
+  }
+
+  const k = (n) => (Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n)}`);
+  const pct = total.baseline > 0 ? Math.round((100 * total.saved) / total.baseline) : 0;
+  console.log(`Delegated calls (${window}): ${total.n}  ·  ok ${total.ok}  ·  avg ${(total.ms / total.n / 1000).toFixed(1)}s`);
+  console.log(`Claude wrote:       ~${k(tok(total.claude))} tokens of prompts`);
+  console.log(`Server attached:    ~${k(tok(total.files))} tokens of files (Claude never wrote or read them)`);
+  console.log(`Other models wrote: ~${k(tok(total.reply))} tokens of answers`);
+  console.log(`Estimated saving:   ~${k(total.saved)} Claude output-token equivalents  (${pct}% of what these tasks would have cost Claude)`);
+  console.log('');
+  console.log('By model:');
+  for (const [m, t] of [...byModel].sort((a, b) => b[1].saved - a[1].saved)) {
+    console.log(`  ${m.padEnd(46)} ${String(t.n).padStart(4)} calls  ~${k(t.saved).padStart(6)} saved`);
+  }
+  console.log('');
+  console.log('Estimate: input counted at 1/5 of output; assumes Claude would have written an answer');
+  console.log("as long as the delegate's; excludes Claude's own reading to verify results.");
+}
+
 const [cmd = 'status', arg] = process.argv.slice(2).map((s) => s.toLowerCase());
 const cfg = loadConfig();
 
@@ -215,7 +275,10 @@ switch (cmd) {
   case 'status':
     status();
     break;
+  case 'stats':
+    stats(arg ? Number(arg) : 0);
+    break;
   default:
-    console.log('Usage: relay [status | on | off | auto | threshold <n> | window any|5h|7d | setup | uninstall]');
+    console.log('Usage: relay [status | on | off | auto | threshold <n> | window any|5h|7d | stats [days] | setup | uninstall]');
     process.exit(1);
 }
