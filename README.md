@@ -92,6 +92,10 @@ Plugin commands are namespaced — type `/shelf` or `/relay` and pick the
 - **Measured, not guessed.** Every delegated call is logged (sizes only, never
   content) to `~/.claude/model-relay/ledger.jsonl`; `/relay stats` turns it into
   an estimate of Claude tokens saved.
+- **Your skills travel along.** `skills: ["ponytail"]` sends the SKILL.md of any
+  installed skill to the delegate, so it follows the same rules Claude does.
+- **Failure falls back.** A failing backend is retried once on another installed
+  CLI; if that fails too, Claude is told to do the task itself instead of retrying.
 - **Safe by default.** Every delegated call runs in a fresh empty temp
   directory (`--sandbox` / read-only where the CLI supports it), so the other
   agent cannot see or touch your project. It gets only the prompt Claude writes.
@@ -100,7 +104,7 @@ Plugin commands are namespaced — type `/shelf` or `/relay` and pick the
 
 | Tool | |
 |---|---|
-| `ask_model` | One prompt to one model. `model`, `prompt`, optional `effort`, `files`, `output_file`, `system` |
+| `ask_model` | One prompt to one model. `model`, `prompt`, optional `effort`, `files`, `output_file`, `skills`, `fallback`, `system` |
 | `ask_models` | The same prompt to several models in parallel, for second opinions |
 | `map_prompt` | One template over many inputs (`inputs` or `input_files`), for bulk work |
 | `list_models` / `list_providers` | What is installed, and which effort levels each backend honours |

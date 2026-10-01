@@ -19,6 +19,22 @@ is genuinely hard. Still verify what comes back; you remain accountable.
 
 Without that note, delegate only when it is clearly worth it (below).
 
+## Share your skills
+
+If a skill is shaping how you work this session — ponytail mode, a style
+guide, TDD, a brand voice — pass it on: `skills: ["ponytail"]` (plugin skills as
+`"plugin:skill"`). The server sends the SKILL.md itself, so it costs you nothing,
+and the delegate's output then matches what you would have written.
+
+## When delegation fails
+
+- A failed backend is retried once on another installed CLI automatically. A
+  `_Fell back: …_` line tells you which.
+- If the tool says **"Delegation failed — … Do this task yourself"**, do exactly
+  that, right away. Do not retry the delegation or try more models.
+- If a delegated result fails your verification (tests fail, wrong output), fix
+  it yourself. Re-delegate at most once, and only with a clearly better prompt.
+
 ## Two hard constraints, read first
 
 **1. A delegated model is stateless and blind.** It gets your prompt plus any

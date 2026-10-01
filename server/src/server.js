@@ -19,6 +19,7 @@ import {
 import { loadProviders, parseModelRef } from './providers.js';
 import { complete, listModels } from './client.js';
 import { loadFiles, writeOutput } from './files.js';
+import { loadSkills } from './skills.js';
 import { record } from './ledger.js';
 import {
   CLI_ADAPTERS,
@@ -92,6 +93,16 @@ const TOOLS = [
             'Absolute path to write the reply to, instead of returning it. Use whenever the answer becomes a file (code, tests, docs): you then only read/run it to verify, instead of re-typing it as output tokens. One surrounding ``` fence is stripped. Fails if the file exists unless overwrite is true.',
         },
         overwrite: { type: 'boolean', description: 'Allow output_file to replace an existing file. Default false.' },
+        fallback: {
+          type: 'boolean',
+          description: 'If the backend fails, retry once on another installed CLI (its default model). Default true.',
+        },
+        skills: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Names of Claude Code skills the delegate must follow too, e.g. ["ponytail"] or ["plugin:skill"]. The server reads each SKILL.md and sends it as instructions — pass the skills that shape how you are working this session.',
+        },
         system: { type: 'string', description: 'Optional system prompt setting the role or output format.' },
         temperature: { type: 'number', description: 'Sampling temperature, typically 0-1.' },
         max_tokens: { type: 'integer', description: 'Cap on response length.' },
@@ -126,6 +137,12 @@ const TOOLS = [
           items: { type: 'string' },
           description:
             'Absolute paths of local files to attach. The server reads them and appends them to the prompt, so you never paste file contents yourself (pasting costs your own output tokens). Max 256 KB per file, 1 MB total; credential files (.env, keys) are refused.',
+        },
+        skills: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Names of Claude Code skills the delegate must follow too, e.g. ["ponytail"] or ["plugin:skill"]. The server reads each SKILL.md and sends it as instructions — pass the skills that shape how you are working this session.',
         },
         system: { type: 'string' },
         temperature: { type: 'number' },
@@ -173,6 +190,12 @@ const TOOLS = [
             'Absolute paths of local files to attach to EVERY item as shared context. The server reads them and appends them to the prompt, so you never paste file contents yourself (pasting costs your own output tokens). Max 256 KB per file, 1 MB total; credential files (.env, keys) are refused.',
         },
 
+        skills: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Names of Claude Code skills the delegate must follow too, e.g. ["ponytail"] or ["plugin:skill"]. The server reads each SKILL.md and sends it as instructions — pass the skills that shape how you are working this session.',
+        },
         system: { type: 'string' },
         temperature: { type: 'number' },
         max_tokens: { type: 'integer' },
@@ -181,6 +204,10 @@ const TOOLS = [
           enum: ['low', 'medium', 'high'],
           description:
             'Reasoning effort. low = fast/cheap (triage, extraction), medium = default, high = hard reasoning (architecture, subtle bugs). Omit to use the backend default. Ignored by backends without an effort knob (see list_providers).',
+        },
+        fallback: {
+          type: 'boolean',
+          description: 'If the backend fails, retry once on another installed CLI (its default model). Default true.',
         },
         concurrency: {
           type: 'integer',
@@ -244,34 +271,86 @@ async function pooled(items, limit, fn) {
  * written by Claude); `claudeChars` is what Claude did write for this call.
  * Both go to the ledger so /relay stats can estimate savings.
  */
-async function askOne(ref, args, { attached = '', claudeChars, tool = 'ask_model', fileChars = 0, outputFile = null } = {}) {
-  const started = Date.now();
-  const prompt = attached ? `${args.prompt}
+async function callModel(ref, args, prompt, system) {
+  const { provider, model } = resolve(ref);
+  const call = provider.kind === 'cli' ? cliComplete : complete;
+  return call(provider, {
+    model,
+    prompt,
+    system,
+    temperature: args.temperature,
+    maxTokens: args.max_tokens,
+    effort: args.effort,
+    timeoutMs: args.timeout_ms,
+  });
+}
 
-${attached}` : args.prompt;
-  const wrote = claudeChars ?? (args.prompt?.length ?? 0) + (args.system?.length ?? 0);
+/** Next installed CLI backend to try after `ref` failed, or null. */
+function fallbackFor(ref) {
+  let failed;
   try {
-    const { provider, model } = resolve(ref);
-    const call = provider.kind === 'cli' ? cliComplete : complete;
-    const r = await call(provider, {
-      model,
-      prompt,
-      system: args.system,
-      temperature: args.temperature,
-      maxTokens: args.max_tokens,
-      effort: args.effort,
-      timeoutMs: args.timeout_ms,
-    });
-    if (outputFile) r.written = await writeOutput(outputFile, r.text, { overwrite: args.overwrite });
-    record({ tool, model: r.resolvedModel.split(' · ')[0], effort: args.effort ?? null, ok: true,
-      claude_chars: wrote, file_chars: attached.length + fileChars, reply_chars: r.text.length,
-      to_file: Boolean(outputFile), ms: r.elapsedMs });
-    return { ref, ok: true, ...r };
-  } catch (e) {
-    record({ tool, model: String(ref), effort: args.effort ?? null, ok: false,
-      claude_chars: wrote, file_chars: attached.length + fileChars, reply_chars: 0, ms: Date.now() - started });
-    return { ref, ok: false, error: e.message };
+    failed = resolve(ref).provider.id;
+  } catch {
+    failed = null;
   }
+  return Object.keys(CLI_ADAPTERS).find((id) => id !== failed && providers.has(id)) ?? null;
+}
+
+/**
+ * One delegated call. `attached` is file text the server read itself (never
+ * written by Claude); `claudeChars` is what Claude did write for this call.
+ * Both go to the ledger so /relay stats can estimate savings.
+ *
+ * If the backend fails, one other installed CLI is tried (its default model)
+ * unless `fallback` is off. Writing output_file is not retried: its errors are
+ * about the path, not the model.
+ */
+async function askOne(
+  ref,
+  args,
+  { attached = '', claudeChars, tool = 'ask_model', fileChars = 0, outputFile = null, skillText = '', fallback = true } = {}
+) {
+  const started = Date.now();
+  const prompt = attached ? `${args.prompt}\n\n${attached}` : args.prompt;
+  const system = [skillText, args.system].filter(Boolean).join('\n\n') || undefined;
+  const wrote = claudeChars ?? (args.prompt?.length ?? 0) + (args.system?.length ?? 0);
+  const log = (ok, model, extra) =>
+    record({ tool, model, effort: args.effort ?? null, ok, claude_chars: wrote,
+      file_chars: attached.length + fileChars, ...extra });
+
+  let r;
+  let fellBackFrom = null;
+  try {
+    r = await callModel(ref, args, prompt, system);
+  } catch (first) {
+    const alt = fallback && args.fallback !== false ? fallbackFor(ref) : null;
+    log(false, String(ref), { reply_chars: 0, ms: Date.now() - started });
+    if (!alt) return { ref, ok: false, error: first.message };
+    try {
+      r = await callModel(alt, args, prompt, system);
+      fellBackFrom = `${ref} (${first.message.split('\n')[0].slice(0, 120)})`;
+    } catch (second) {
+      log(false, alt, { reply_chars: 0, ms: Date.now() - started });
+      return { ref, ok: false, error: `${first.message}\nFallback ${alt} also failed: ${second.message}` };
+    }
+  }
+
+  try {
+    if (outputFile) r.written = await writeOutput(outputFile, r.text, { overwrite: args.overwrite });
+  } catch (e) {
+    return { ref, ok: false, error: e.message, noRetry: true };
+  }
+  log(true, r.resolvedModel.split(' · ')[0], { reply_chars: r.text.length, to_file: Boolean(outputFile), ms: r.elapsedMs });
+  return { ref, ok: true, fellBackFrom, ...r };
+}
+
+/** Failure text that tells Claude to stop delegating and do the work itself. */
+function failedText(ref, r) {
+  if (r.noRetry) return `Call to "${ref}" succeeded but the result was not saved: ${r.error}`;
+  return (
+    `Delegation failed — ${r.error}\n\n` +
+    'Do this task yourself now, in this conversation. Do not retry the delegation.'
+  );
 }
 
 function noProvidersMessage() {
@@ -371,27 +450,28 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
       case 'ask_model': {
         const { text: attached } = await loadFiles(args.files);
-        const r = await askOne(args.model, args, { attached, outputFile: args.output_file });
-        if (!r.ok) return errorText(`Call to "${args.model}" failed: ${r.error}`);
+        const skillText = await loadSkills(args.skills);
+        const r = await askOne(args.model, args, { attached, outputFile: args.output_file, skillText });
+        if (!r.ok) return errorText(failedText(args.model, r));
+        const note = r.fellBackFrom ? `_Fell back: ${r.fellBackFrom} failed._\n` : '';
         if (r.written) {
           const w = r.written;
           return text(
             `Wrote ${w.path} — ${w.lines} lines, ${w.chars} chars${w.stripped ? ' (code fence stripped)' : ''}. ` +
-              `Not shown here: read or run it to verify.
-
----
-${usageLine(r)}`
+              `Not shown here: run or read it to verify; if it is wrong, fix it yourself rather than re-delegating.` +
+              `\n\n---\n${note}${usageLine(r)}`
           );
         }
-        return text(`${r.text}\n\n---\n${usageLine(r)}`);
+        return text(`${r.text}\n\n---\n${note}${usageLine(r)}`);
       }
 
       case 'ask_models': {
         const { text: attached } = await loadFiles(args.files);
+        const skillText = await loadSkills(args.skills);
         // Claude wrote the prompt once, however many models read it.
         const once = (args.prompt?.length ?? 0) + (args.system?.length ?? 0);
         const results = await Promise.all(
-          args.models.map((m, i) => askOne(m, args, { attached, claudeChars: i ? 0 : once, tool: 'ask_models' }))
+          args.models.map((m, i) => askOne(m, args, { attached, skillText, claudeChars: i ? 0 : once, tool: 'ask_models', fallback: false }))
         );
         const blocks = results.map((r) =>
           r.ok
@@ -413,6 +493,7 @@ ${usageLine(r)}`
           return errorText('Give either inputs or input_files.');
         }
         const { text: shared } = await loadFiles(args.files);
+        const skillText = await loadSkills(args.skills);
         // input_files: the server reads each file, so it costs Claude nothing to write.
         const items = args.input_files?.length
           ? await Promise.all(args.input_files.map(async (f) => ({ text: (await loadFiles([f])).text, fromFile: true })))
@@ -426,6 +507,7 @@ ${usageLine(r)}`
             { ...args, prompt: args.template.split('{{input}}').join(item.text) },
             {
               attached: shared,
+              skillText,
               tool: 'map_prompt',
               claudeChars: (i === 0 ? templateChars : 0) + (item.fromFile ? 0 : item.text.length),
               fileChars: item.fromFile ? item.text.length : 0,
@@ -442,7 +524,11 @@ ${usageLine(r)}`
           `_${ok.length}/${results.length} items succeeded on ${args.model}` +
           (tokens ? ` · ${tokens} tok total` : '') +
           `._\n\n`;
-        return text(header + blocks.join('\n\n'));
+        const failed = results.length - ok.length;
+        const footer = failed
+          ? `\n\n---\n${failed} item(s) failed even after fallback: handle those yourself, do not re-run them.`
+          : '';
+        return text(header + blocks.join('\n\n') + footer);
       }
 
       default:
