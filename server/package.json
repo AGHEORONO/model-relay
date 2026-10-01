@@ -7,6 +7,7 @@
   "scripts": {
     "build": "node build.mjs",
     "check": "node dist/server.mjs --selftest",
+    "test": "node --test",
     "shelf": "node src/shelf.js"
   },
   "dependencies": {

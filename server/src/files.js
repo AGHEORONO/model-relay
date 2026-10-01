@@ -6,7 +6,7 @@
  * With it, Claude passes paths and the server reads the files itself.
  */
 
-import { readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const MAX_FILE = 256 * 1024;
@@ -42,4 +42,22 @@ export async function loadFiles(paths = [], { budget = MAX_TOTAL } = {}) {
     blocks.push(`===== FILE: ${raw} =====\n${body}${body.endsWith('\n') ? '' : '\n'}===== END FILE =====`);
   }
   return { text: blocks.join('\n\n'), chars: total, paths };
+}
+
+/**
+ * Write a delegated reply straight to disk, so Claude never re-types it.
+ * Strips one fence wrapping the whole reply (```js ... ```), since models add
+ * them even when told not to. Returns what was written, for the tool result.
+ */
+export async function writeOutput(file, reply, { overwrite = false } = {}) {
+  const abs = path.resolve(String(file));
+  if (isSecretPath(abs)) throw new Error(`refusing to write a credentials file: ${file}`);
+  if (!overwrite && (await stat(abs).catch(() => null))) {
+    throw new Error(`${file} already exists (pass overwrite: true to replace it)`);
+  }
+  const fenced = reply.trim().match(/^```[\w+-]*\n([\s\S]*?)\n```$/);
+  const body = (fenced ? fenced[1] : reply.trim()) + '\n';
+  await mkdir(path.dirname(abs), { recursive: true });
+  await writeFile(abs, body);
+  return { path: file, chars: body.length, lines: body.split('\n').length - 1, stripped: Boolean(fenced) };
 }

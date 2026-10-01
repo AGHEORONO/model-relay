@@ -1,6 +1,6 @@
 {
   "name": "model-relay",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "When your Claude plan hits 50% usage, Claude Code starts handing work to Gemini, GPT, Grok and others through CLIs you are already logged into. Manual mode too, plus /shelf to see every model.",
   "author": {
     "name": "AGHEORONO"

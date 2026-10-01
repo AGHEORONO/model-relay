@@ -30,6 +30,11 @@ ask a follow-up.
 *write* the file as output tokens — the expensive kind — and wipes out the
 saving that delegation was for.
 
+**Never re-type a delegated answer into a file.** When the result *is* a file
+(code, tests, docs), pass `output_file: "<abs path>"` to `ask_model`: the server
+writes it and returns only a summary. Then run or read it to verify. Copying an
+inline answer into Write costs exactly the output tokens you meant to save.
+
 **2. Subscription (CLI) backends are slow.** Each call spawns a whole agent
 process — **roughly 11-20 seconds**, versus under a second for an API backend.
 Never put one on the interactive path. It is worth it for parallel fan-out and

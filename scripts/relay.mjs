@@ -203,6 +203,7 @@ function stats(days) {
 
   const byModel = new Map();
   const total = { n: 0, ok: 0, claude: 0, files: 0, reply: 0, ms: 0, saved: 0, baseline: 0 };
+  const toFile = calls.filter((c) => c.ok && c.to_file).length;
   for (const c of calls) {
     const withRelay = tok(c.claude_chars) + tok(c.reply_chars) / OUT_PER_IN;
     const without = c.ok ? tok(c.reply_chars) + tok(c.file_chars) / OUT_PER_IN : 0;
@@ -218,7 +219,7 @@ function stats(days) {
   console.log(`Delegated calls (${window}): ${total.n}  ·  ok ${total.ok}  ·  avg ${(total.ms / total.n / 1000).toFixed(1)}s`);
   console.log(`Claude wrote:       ~${k(tok(total.claude))} tokens of prompts`);
   console.log(`Server attached:    ~${k(tok(total.files))} tokens of files (Claude never wrote or read them)`);
-  console.log(`Other models wrote: ~${k(tok(total.reply))} tokens of answers`);
+  console.log(`Other models wrote: ~${k(tok(total.reply))} tokens of answers  (${toFile} of ${total.ok} written straight to disk)`);
   console.log(`Estimated saving:   ~${k(total.saved)} Claude output-token equivalents  (${pct}% of what these tasks would have cost Claude)`);
   console.log('');
   console.log('By model:');
@@ -227,7 +228,8 @@ function stats(days) {
   }
   console.log('');
   console.log('Estimate: input counted at 1/5 of output; assumes Claude would have written an answer');
-  console.log("as long as the delegate's; excludes Claude's own reading to verify results.");
+  console.log("as long as the delegate's; excludes Claude's own reading to verify results. An inline answer");
+  console.log('that Claude then re-typed into a file saved nothing — use output_file for those.');
 }
 
 const [cmd = 'status', arg] = process.argv.slice(2).map((s) => s.toLowerCase());

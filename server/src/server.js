@@ -18,7 +18,7 @@ import {
 
 import { loadProviders, parseModelRef } from './providers.js';
 import { complete, listModels } from './client.js';
-import { loadFiles } from './files.js';
+import { loadFiles, writeOutput } from './files.js';
 import { record } from './ledger.js';
 import {
   CLI_ADAPTERS,
@@ -86,6 +86,12 @@ const TOOLS = [
           description:
             'Absolute paths of local files to attach. The server reads them and appends them to the prompt, so you never paste file contents yourself (pasting costs your own output tokens). Max 256 KB per file, 1 MB total; credential files (.env, keys) are refused.',
         },
+        output_file: {
+          type: 'string',
+          description:
+            'Absolute path to write the reply to, instead of returning it. Use whenever the answer becomes a file (code, tests, docs): you then only read/run it to verify, instead of re-typing it as output tokens. One surrounding ``` fence is stripped. Fails if the file exists unless overwrite is true.',
+        },
+        overwrite: { type: 'boolean', description: 'Allow output_file to replace an existing file. Default false.' },
         system: { type: 'string', description: 'Optional system prompt setting the role or output format.' },
         temperature: { type: 'number', description: 'Sampling temperature, typically 0-1.' },
         max_tokens: { type: 'integer', description: 'Cap on response length.' },
@@ -238,7 +244,7 @@ async function pooled(items, limit, fn) {
  * written by Claude); `claudeChars` is what Claude did write for this call.
  * Both go to the ledger so /relay stats can estimate savings.
  */
-async function askOne(ref, args, { attached = '', claudeChars, tool = 'ask_model', fileChars = 0 } = {}) {
+async function askOne(ref, args, { attached = '', claudeChars, tool = 'ask_model', fileChars = 0, outputFile = null } = {}) {
   const started = Date.now();
   const prompt = attached ? `${args.prompt}
 
@@ -256,8 +262,10 @@ ${attached}` : args.prompt;
       effort: args.effort,
       timeoutMs: args.timeout_ms,
     });
+    if (outputFile) r.written = await writeOutput(outputFile, r.text, { overwrite: args.overwrite });
     record({ tool, model: r.resolvedModel.split(' · ')[0], effort: args.effort ?? null, ok: true,
-      claude_chars: wrote, file_chars: attached.length + fileChars, reply_chars: r.text.length, ms: r.elapsedMs });
+      claude_chars: wrote, file_chars: attached.length + fileChars, reply_chars: r.text.length,
+      to_file: Boolean(outputFile), ms: r.elapsedMs });
     return { ref, ok: true, ...r };
   } catch (e) {
     record({ tool, model: String(ref), effort: args.effort ?? null, ok: false,
@@ -363,8 +371,18 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
       case 'ask_model': {
         const { text: attached } = await loadFiles(args.files);
-        const r = await askOne(args.model, args, { attached });
+        const r = await askOne(args.model, args, { attached, outputFile: args.output_file });
         if (!r.ok) return errorText(`Call to "${args.model}" failed: ${r.error}`);
+        if (r.written) {
+          const w = r.written;
+          return text(
+            `Wrote ${w.path} — ${w.lines} lines, ${w.chars} chars${w.stripped ? ' (code fence stripped)' : ''}. ` +
+              `Not shown here: read or run it to verify.
+
+---
+${usageLine(r)}`
+          );
+        }
         return text(`${r.text}\n\n---\n${usageLine(r)}`);
       }
 

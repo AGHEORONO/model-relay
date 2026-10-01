@@ -86,6 +86,9 @@ Plugin commands are namespaced — type `/shelf` or `/relay` and pick the
 - **Files go by path, not by paste.** `files` / `input_files` make the server
   read files itself, so Claude never spends output tokens copying code into a
   prompt. Credential files (`.env`, keys, `.ssh/`) are refused.
+- **Results go to disk, not through Claude.** With `output_file` the server
+  writes the delegate's answer (code, tests, docs) straight to the file; Claude
+  only runs or reads it to check, instead of re-typing it.
 - **Measured, not guessed.** Every delegated call is logged (sizes only, never
   content) to `~/.claude/model-relay/ledger.jsonl`; `/relay stats` turns it into
   an estimate of Claude tokens saved.
@@ -97,7 +100,7 @@ Plugin commands are namespaced — type `/shelf` or `/relay` and pick the
 
 | Tool | |
 |---|---|
-| `ask_model` | One prompt to one model. `model`, `prompt`, optional `effort`, `files`, `system` |
+| `ask_model` | One prompt to one model. `model`, `prompt`, optional `effort`, `files`, `output_file`, `system` |
 | `ask_models` | The same prompt to several models in parallel, for second opinions |
 | `map_prompt` | One template over many inputs (`inputs` or `input_files`), for bulk work |
 | `list_models` / `list_providers` | What is installed, and which effort levels each backend honours |
