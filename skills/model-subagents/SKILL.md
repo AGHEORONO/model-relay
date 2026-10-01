@@ -52,7 +52,7 @@ writes it and returns only a summary. Then run or read it to verify. Copying an
 inline answer into Write costs exactly the output tokens you meant to save.
 
 **2. Subscription (CLI) backends are slow.** Each call spawns a whole agent
-process — **roughly 11-20 seconds**, versus under a second for an API backend.
+process — **roughly 10-40 seconds**, versus under a second for an API backend.
 Never put one on the interactive path. It is worth it for parallel fan-out and
 second opinions, where the wait buys several answers at once; it is not worth it
 to save yourself a small amount of thinking.
@@ -70,25 +70,31 @@ labels each backend as a subscription CLI or an API-key provider.
 | `ask_models` | Same prompt, several models, in parallel. Second opinions and consensus. |
 | `map_prompt` | One template over many inputs on one cheap model. Bulk work. |
 
-## Naming a backend
+## Naming a model: use the aliases
 
-- `<backend>:<model>` — explicit, e.g. `cursor:auto`, `antigravity:gemini-3.8-flash-low` (Gemini via the agy CLI, no key), `google:gemini-2.5-flash` (API key)
-- `<backend>` alone — that backend's own default model, e.g. `codex`
+Don't hard-code model names — they change every few weeks. Use aliases; the
+server resolves them to the newest matching model at call time:
 
-Prefer the bare form for subscription CLIs unless the user wants a specific
-model. Named models can be rejected by plan tier (Cursor free plans allow only
-`auto`), and the bare form sidesteps that entirely.
+- `<backend>:@fast` — newest cheap/fast model (flash, mini, haiku…)
+- `<backend>:@smart` — newest top model (pro, opus…)
+- `opencode:@smart-claude`, `opencode:@fast-gpt` — opencode serves many vendors, so
+  name the family
+- `<backend>` alone (e.g. `codex`) — that CLI's own default
+
+`list_models` and `/shelf` show what each alias points to right now. Use an
+exact id only when the user asks for a specific model. Cursor's free plan is
+pinned to `auto`, whatever you ask for.
 
 ## Choosing model and effort yourself
 
-Every call takes an optional `effort`: `low` | `medium` | `high`. Pick it per task,
-not per session — cheapest setting that will get it right:
+Pick per task, not per session — the cheapest setting that will get it right:
 
 | Task | Model | effort |
 |---|---|---|
-| Bulk triage, extraction, classification (`map_prompt`) | a flash/mini model, e.g. `antigravity:gemini-3.8-flash-low` | `low` |
-| Summaries, rewrites, routine second opinion | backend default or a flash model | `medium` |
-| Architecture call, subtle bug, adversarial review | a pro/frontier model, e.g. `antigravity:gemini-3.1-pro-high`, `codex` | `high` |
+| Bulk triage, extraction, classification (`map_prompt`) | `antigravity:@fast` | `low` |
+| Summaries, rewrites, drafts, routine second opinion | `antigravity:@fast` or `codex` | `medium` |
+| Code that must work, tests, refactors | `codex` | `medium` |
+| Architecture call, subtle bug, adversarial review | `antigravity:@smart`, `codex` | `high` |
 
 `list_providers` shows which backends honour `effort`. Cursor has no flag — its
 effort is in the model id (`gpt-5.3-codex-high`). The usage footer says
@@ -154,7 +160,7 @@ rather than asserting a model exists.
 **Second opinion, then judge:**
 ```
 ask_models(
-  models: ["google:gemini-2.5-flash", "openrouter:deepseek/deepseek-chat"],
+  models: ["antigravity:@smart", "codex", "opencode:@smart-claude"],
   system: "You are a senior engineer. Be concrete and brief. State your reasoning.",
   prompt: "<full code + the specific question>"
 )
@@ -164,7 +170,8 @@ Then form your own view. You are the one accountable for the answer.
 **Bulk triage:**
 ```
 map_prompt(
-  model: "gemini-2.5-flash",
+  model: "antigravity:@fast",
+  effort: "low",
   system: "Reply with exactly one word: BUG, STYLE, or FINE.",
   template: "Classify this diff hunk:\n\n{{input}}",
   inputs: [...],

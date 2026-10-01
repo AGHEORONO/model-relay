@@ -13,7 +13,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -31,18 +31,30 @@ export const CLI_ADAPTERS = {
   antigravity: {
     label: 'Antigravity CLI (Google account)',
     bin: 'agy',
-    promptVia: 'argv',
+    // stream-json over stdin: no argv length limit, no tool call needed to read
+    // a prompt file, and the result event reports success or the real error.
+    promptVia: 'stdin',
+    stdin: (prompt) => JSON.stringify({ event: 'user', message: { content: prompt } }) + '\n',
     outputVia: 'stdout',
-    argv: ({ model, prompt, effort }) => [
-      '-p',
-      prompt,
+    argv: ({ model, effort }) => [
+      '--input-format',
+      'stream-json',
       '--output-format',
-      'text',
+      'stream-json',
+      '-p=',
       '--sandbox',
       ...(model ? ['--model', model] : []),
       ...(effort ? ['--effort', effort] : []),
     ],
+    parseOutput: (out) => {
+      const line = out.split('\n').reverse().find((l) => l.includes('"event":"result"'));
+      const r = line ? JSON.parse(line).result : null;
+      if (!r) return { error: 'no result event in agy output' };
+      if (r.status !== 'SUCCESS') return { error: r.error || r.status };
+      return { text: r.response ?? '' };
+    },
     efforts: ['low', 'medium', 'high'],
+    family: 'gemini', // what @fast / @smart pick from
     listArgv: ['models'],
     // "gemini-3.1-pro-high\tGemini 3.1 Pro (High)" -> "gemini-3.1-pro-high"
     parseModels: (out) =>
@@ -79,14 +91,13 @@ export const CLI_ADAPTERS = {
   cursor: {
     label: 'Cursor Agent CLI (Cursor subscription)',
     bin: 'cursor-agent',
-    promptVia: 'argv',
+    promptVia: 'stdin', // `-p` with no text reads the prompt from stdin
     outputVia: 'stdout',
     // --trust is required for any non-interactive run. It is safe here only
     // because every call gets a fresh empty cwd (see cliComplete) — these are
     // coding agents, so never point one at a real repo.
-    argv: ({ model, prompt }) => [
+    argv: ({ model }) => [
       '-p',
-      prompt,
       '--output-format',
       'text',
       '--trust',
@@ -113,11 +124,13 @@ export const CLI_ADAPTERS = {
     bin: 'opencode',
     promptVia: 'argv',
     outputVia: 'stdout',
-    argv: ({ model, prompt, effort }) => [
+    argv: ({ model, prompt, effort, promptFile }) => [
       'run',
       ...(model ? ['-m', model] : []),
       ...(effort ? ['--variant', effort] : []),
       prompt,
+      // last: -f is an array option and would swallow a following positional
+      ...(promptFile ? ['-f', promptFile] : []),
     ],
     efforts: ['low', 'medium', 'high'],
     listArgv: ['models'],
@@ -128,7 +141,42 @@ export const CLI_ADAPTERS = {
         .filter((l) => l && l.includes('/') && !l.includes(' ')),
     install: 'https://opencode.ai  then `opencode auth login`',
   },
+
+  grok: {
+    label: 'Grok CLI (xAI account)',
+    bin: 'grok',
+    promptVia: 'file', // --prompt-file: single turn, no argv length limit
+    outputVia: 'stdout',
+    // Plan mode + no subagents: it may read, never edit, and the cwd is empty anyway.
+    argv: ({ model, promptFile, effort }) => [
+      '--prompt-file',
+      promptFile,
+      '--output-format',
+      'plain',
+      '--permission-mode',
+      'plan',
+      '--no-subagents',
+      ...(model ? ['-m', model] : []),
+      ...(effort ? ['--reasoning-effort', effort] : []),
+    ],
+    efforts: ['low', 'medium', 'high'],
+    family: 'grok',
+    listArgv: ['models'],
+    // "  * grok-4.6 (default)" / "  - grok-4.5" -> ids
+    parseModels: (out) =>
+      stripAnsi(out)
+        .split('\n')
+        .map((l) => l.match(/^\s*[*-]\s+([A-Za-z0-9._-]+)/)?.[1])
+        .filter(Boolean),
+    install: 'https://x.ai/cli  then `grok login`',
+  },
 };
+
+// Windows caps a whole command line near 32k chars; stay well under it.
+const ARGV_PROMPT_MAX = 24_000;
+const POINTER =
+  'Your complete task is in the file prompt.md in the current directory. ' +
+  'Read it and do exactly what it says; reply only with what it asks for.';
 
 /* ------------------------------------------------------------ discovery */
 
@@ -248,9 +296,17 @@ export async function cliComplete(provider, { model, prompt, system, effort, tim
   const outFile = provider.outputVia === 'file' ? path.join(tmpDir, 'answer.txt') : null;
 
   try {
-    const args = provider.argv({ model: effectiveModel, prompt: fullPrompt, outFile, effort: effectiveEffort });
+    // Long prompts can't ride on argv: hand them over as a file instead.
+    let prompt = fullPrompt;
+    let promptFile = null;
+    if (provider.promptVia === 'file' || (provider.promptVia === 'argv' && fullPrompt.length > ARGV_PROMPT_MAX)) {
+      promptFile = path.join(tmpDir, 'prompt.md');
+      await writeFile(promptFile, fullPrompt);
+      if (provider.promptVia === 'argv') prompt = POINTER;
+    }
+    const args = provider.argv({ model: effectiveModel, prompt, outFile, promptFile, effort: effectiveEffort });
     const { code, stdout, stderr } = await spawnCapture(provider.binPath, args, {
-      input: provider.promptVia === 'stdin' ? fullPrompt : null,
+      input: provider.promptVia === 'stdin' ? (provider.stdin ? provider.stdin(fullPrompt) : fullPrompt) : null,
       timeoutMs: timeoutMs ?? DEFAULT_TIMEOUT_MS,
       cwd: tmpDir,
     });
@@ -259,6 +315,10 @@ export async function cliComplete(provider, { model, prompt, system, effort, tim
     if (provider.outputVia === 'file') {
       text = await readFile(outFile, 'utf8').catch(() => '');
       if (!text.trim()) text = stripAnsi(stdout); // fall back if the flag was ignored
+    } else if (provider.parseOutput) {
+      const parsed = provider.parseOutput(stripAnsi(stdout));
+      if (parsed.error) throw new Error(parsed.error);
+      text = parsed.text;
     } else {
       text = stripAnsi(stdout);
     }

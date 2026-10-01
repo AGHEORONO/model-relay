@@ -20,6 +20,7 @@ import { loadProviders, parseModelRef } from './providers.js';
 import { complete, listModels } from './client.js';
 import { loadFiles, writeOutput } from './files.js';
 import { loadSkills } from './skills.js';
+import { aliasLine, familyOf, parseAlias, pickModel } from './models.js';
 import { record } from './ledger.js';
 import {
   CLI_ADAPTERS,
@@ -78,7 +79,7 @@ const TOOLS = [
         model: {
           type: 'string',
           description:
-            'Model id, optionally backend-prefixed: "antigravity:gemini-3.8-flash-low", "cursor:gpt-5.2". A bare backend name ("codex") uses that backend\'s own default model. Get exact ids from list_models.',
+            'Prefer an alias: "<backend>:@fast" (newest cheap/fast model) or "<backend>:@smart" (newest top model), e.g. "antigravity:@fast", "opencode:@smart-claude" — they always track the current models. Or an exact id from list_models ("cursor:gpt-5.2"), or a bare backend name ("codex") for its default.',
         },
         prompt: { type: 'string', description: 'The full, self-contained user prompt.' },
         files: {
@@ -236,6 +237,53 @@ function resolve(modelRef) {
   return { provider, model };
 }
 
+/* Model lists are slow to fetch (they spawn the CLI), so keep them a while. */
+const modelCache = new Map();
+async function modelsOf(provider) {
+  const hit = modelCache.get(provider.id);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.ids;
+  const ids = provider.kind === 'cli' ? await cliListModels(provider) : await listModels(provider);
+  modelCache.set(provider.id, { at: Date.now(), ids });
+  return ids;
+}
+
+/**
+ * Resolve a model ref, turning @fast / @smart[-family] into today's newest
+ * matching model id. Backends pinned to one model (cursor free: "auto") or
+ * without a model list (codex) keep their default.
+ */
+/** An error in the model reference itself: Claude should fix the ref, not give up. */
+function badRef(message) {
+  return Object.assign(new Error(message), { badRef: true });
+}
+
+async function resolveRef(ref, effort) {
+  let r;
+  try {
+    r = resolve(ref);
+  } catch (e) {
+    throw badRef(e.message);
+  }
+  const alias = parseAlias(r.model);
+  if (!alias) return r;
+  const p = r.provider;
+  if (p.defaultModel) return { provider: p, model: p.defaultModel };
+  const ids = await modelsOf(p);
+  if (!ids.length) return { provider: p, model: null };
+
+  const family = alias.family ?? p.family ?? null;
+  const families = [...new Set(ids.map(familyOf))];
+  if (!family && families.length > 1) {
+    throw badRef(
+      `${p.id} serves several model families — name one: ${p.id}:@${alias.tier}-<family>. ` +
+        `Families: ${families.join(', ')}`
+    );
+  }
+  const id = pickModel(ids, alias.tier, { effort, family });
+  if (!id) throw badRef(`no ${alias.tier} model${family ? ` in family "${family}"` : ''} on ${p.id}`);
+  return { provider: p, model: id };
+}
+
 function text(s) {
   return { content: [{ type: 'text', text: s }] };
 }
@@ -272,7 +320,7 @@ async function pooled(items, limit, fn) {
  * Both go to the ledger so /relay stats can estimate savings.
  */
 async function callModel(ref, args, prompt, system) {
-  const { provider, model } = resolve(ref);
+  const { provider, model } = await resolveRef(ref, args.effort);
   const call = provider.kind === 'cli' ? cliComplete : complete;
   return call(provider, {
     model,
@@ -323,6 +371,7 @@ async function askOne(
   try {
     r = await callModel(ref, args, prompt, system);
   } catch (first) {
+    if (first.badRef) return { ref, ok: false, error: first.message, badRef: true };
     const alt = fallback && args.fallback !== false ? fallbackFor(ref) : null;
     log(false, String(ref), { reply_chars: 0, ms: Date.now() - started });
     if (!alt) return { ref, ok: false, error: first.message };
@@ -347,6 +396,8 @@ async function askOne(
 /** Failure text that tells Claude to stop delegating and do the work itself. */
 function failedText(ref, r) {
   if (r.noRetry) return `Call to "${ref}" succeeded but the result was not saved: ${r.error}`;
+  if (r.badRef) return `Bad model reference "${ref}": ${r.error}
+Fix the model argument and call again.`;
   return (
     `Delegation failed — ${r.error}\n\n` +
     'Do this task yourself now, in this conversation. Do not retry the delegation.'
@@ -433,9 +484,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             continue;
           }
           try {
-            let ids = provider.kind === 'cli' ? await cliListModels(provider) : await listModels(provider);
-            if (filter) ids = ids.filter((m) => m.toLowerCase().includes(filter));
-            const note = provider.modelsNote ? `\n_${provider.modelsNote}_` : '';
+            const all = await modelsOf(provider);
+            const ids = filter ? all.filter((m) => m.toLowerCase().includes(filter)) : all;
+            const note = (provider.modelsNote ? `\n_${provider.modelsNote}_` : '') + `\nAliases: ${aliasLine(provider, all)}`;
             blocks.push(
               ids.length
                 ? `### ${id} (${ids.length})${note}\n${ids.map((m) => `- ${id}:${m}`).join('\n')}`

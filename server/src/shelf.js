@@ -14,6 +14,7 @@
 import { loadProviders } from './providers.js';
 import { listModels } from './client.js';
 import { chooseDefault, cliListModels, detectCliProviders } from './cli-providers.js';
+import { EFFORTS, aliasLine, splitVariant } from './models.js';
 
 const PER_ROW = 4;
 const INNER = 24; // book interior width
@@ -21,23 +22,7 @@ const BOOK = INNER + 2;
 const WIDTH = PER_ROW * BOOK + (PER_ROW - 1);
 const PREVIEW_ROWS = 2;
 
-const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'extra-high', 'max'];
 const SHORT = { none: '0', minimal: 'min', low: 'L', medium: 'M', high: 'H', xhigh: 'XH', 'extra-high': 'XH', max: 'MAX' };
-const EFFORT_RE = new RegExp(`-(${EFFORTS.join('|')})$`);
-
-/** "claude-opus-5-thinking-high-fast" -> { base, effort: 'high', thinking, fast } */
-function splitVariant(id) {
-  let rest = id;
-  const fast = /-fast$/.test(rest);
-  rest = rest.replace(/-fast$/, '');
-  let thinking = /-thinking$/.test(rest);
-  rest = rest.replace(/-thinking$/, '');
-  const effort = rest.match(EFFORT_RE)?.[1] ?? null;
-  rest = rest.replace(EFFORT_RE, '');
-  if (/-thinking$/.test(rest)) thinking = true;
-  rest = rest.replace(/-thinking$/, '');
-  return { base: rest, effort, thinking, fast };
-}
 
 /** Stack variants into books. A "family" of one keeps its full id. */
 function toBooks(ids) {
@@ -150,6 +135,7 @@ async function main() {
         (p.defaultModel ? `  │  ★ = ${p.defaultModel} (used by default)` : '') +
         (shared ? `  │  prefix: ${shared}` : '')
     );
+    if (!error) lines.push(` aliases: ${aliasLine(p, ids)}`);
     if (error) {
       lines.push(` ⚠ could not list models: ${error.slice(0, WIDTH - 30)}`);
       return;
